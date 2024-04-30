@@ -15,6 +15,9 @@ from utils import CvFpsCalc
 from model import KeyPointClassifier
 from model import PointHistoryClassifier
 
+from devices import SmartSwitch, SmartLed, SmartSiren
+from menus import Menu
+
 
 def get_args():
     parser = argparse.ArgumentParser()
@@ -45,6 +48,37 @@ def main():
     cap_device = args.device
     cap_width = args.width
     cap_height = args.height
+
+    switch1 = SmartSwitch("Switch1", "192.168.12.151")
+    switch2 = SmartSwitch("Switch2", "192.168.12.152")
+    led = SmartLed("Led", "192.168.12.153")
+    bulb = SmartLed("Bulb", "192.168.12.154")
+    siren = SmartSwitch("Siren", "192.168.12.154")
+
+    devices = []
+    devices.append(switch1)
+    devices.append(switch2)
+    devices.append(led)
+    devices.append(siren)
+    devices.append(bulb)
+
+    device_names = []
+    for device in devices:
+        device_names.append(device.name)
+        print(device)
+
+    devices_menu = Menu("Devices", device_names)
+    actions_menu = Menu("Actions", devices[0].actions)
+    # colors_menu = Menu("Colors", ["Red", "Green", "Blue"])
+    color_items = ["Red", "Green", "Blue"]
+    power_items = ["ON", "OFF"]
+    sub_actions_menu = Menu("Sub Actions", power_items)
+
+    menus = [devices_menu, actions_menu, sub_actions_menu]
+    selected_menu_index = 0
+
+    last_hand_sign_index = 0
+    last_gesture_index = 0
 
     use_static_image_mode = args.use_static_image_mode
     min_detection_confidence = args.min_detection_confidence
@@ -140,12 +174,52 @@ def main():
                             pre_processed_point_history_list)
 
                 # Hand sign classification
-                hand_sign_id = keypoint_classifier(pre_processed_landmark_list)
-                if hand_sign_id == 2:  # Point gesture
+                hand_sign_index = keypoint_classifier(
+                    pre_processed_landmark_list)
+                if hand_sign_index == 2:  # Point gesture
+                    # devices menu visibility
+                    devices_menu.visibility = True
                     point_history.append(landmark_list[8])
                 else:
                     point_history.append([0, 0])
 
+                if hand_sign_index == 3 and hand_sign_index != last_hand_sign_index:  # OK gesture
+                    # Reset selected device index
+                    menus[selected_menu_index].visibility = False
+                    menus[selected_menu_index].selected_index = 0
+                    selected_menu_index -= 1
+                    if selected_menu_index < 0:
+                        selected_menu_index = 0
+
+                elif hand_sign_index == 4 and last_hand_sign_index != hand_sign_index:  # Thumb up gesture
+                    if ((sub_actions_menu.visibility)):
+                        if (sub_actions_menu.items[sub_actions_menu.selected_index] == "ON"):
+                            devices[devices_menu.selected_index].sendPowerReq(
+                                "ON")
+                        if (sub_actions_menu.items[sub_actions_menu.selected_index] == "OFF"):
+                            devices[devices_menu.selected_index].sendPowerReq(
+                                "OFF")
+                        if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Red"):
+                            devices[devices_menu.selected_index].sendColorReq(
+                                "#FF0000")
+                        if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Green"):
+                            devices[devices_menu.selected_index].sendColorReq(
+                                "#00FF00")
+                        if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Blue"):
+                            devices[devices_menu.selected_index].sendColorReq(
+                                "#0000FF")
+
+                elif hand_sign_index == 5 and last_hand_sign_index != hand_sign_index:  # Thumb down gesture
+                    if (devices_menu.visibility):
+                        print("Action negative")
+
+                elif hand_sign_index == 6 and last_hand_sign_index != hand_sign_index:  # Peace sign gesture
+                    selected_menu_index += 1
+                    if selected_menu_index >= len(menus):
+                        selected_menu_index = len(menus) - 1
+                    menus[selected_menu_index].visibility = True
+
+                last_hand_sign_index = hand_sign_index
                 # Finger gesture classification
                 finger_gesture_id = 0
                 point_history_len = len(pre_processed_point_history_list)
@@ -157,6 +231,22 @@ def main():
                 finger_gesture_history.append(finger_gesture_id)
                 most_common_fg_id = Counter(
                     finger_gesture_history).most_common()
+                if (most_common_fg_id[0][0] != last_gesture_index):
+                    last_gesture_index = most_common_fg_id[0][0]
+
+                    if (selected_menu_index == 0):  # devices menu
+                        actions_menu.items = devices[devices_menu.selected_index].actions
+
+                    if (selected_menu_index == 1):  # actions menu
+                        if (actions_menu.items[actions_menu.selected_index] == "Color"):
+                            sub_actions_menu.items = color_items
+                        if (actions_menu.items[actions_menu.selected_index] == "Power"):
+                            sub_actions_menu.items = power_items
+
+                    if (last_gesture_index == 1):  # select next menu item
+                        menus[selected_menu_index].increaseIndex()
+                    elif (last_gesture_index == 2):  # select prev menu item
+                        menus[selected_menu_index].decreaseIndex()
 
                 # Drawing part
                 debug_image = draw_bounding_rect(use_brect, debug_image, brect)
@@ -165,14 +255,26 @@ def main():
                     debug_image,
                     brect,
                     handedness,
-                    keypoint_classifier_labels[hand_sign_id],
+                    keypoint_classifier_labels[hand_sign_index],
                     point_history_classifier_labels[most_common_fg_id[0][0]],
                 )
+
         else:
             point_history.append([0, 0])
 
         debug_image = draw_point_history(debug_image, point_history)
         debug_image = draw_info(debug_image, fps, mode, number)
+
+        # draw menus
+        if (devices_menu.visibility):
+            debug_image = draw_devices_menu(
+                debug_image, devices_menu.selected_index, device_names)
+            if (actions_menu.visibility):
+                debug_image = draw_device_actions_menu(
+                    debug_image, actions_menu.selected_index, devices[devices_menu.selected_index].actions, is_active=selected_menu_index == 1)
+                if (sub_actions_menu.visibility):
+                    debug_image = draw_sub_actions_menu(
+                        debug_image, sub_actions_menu.selected_index, sub_actions_menu.items, is_active=selected_menu_index == 2)
 
         # Screen reflection #############################################################
         cv.imshow('Hand Gesture Recognition', debug_image)
@@ -536,6 +638,135 @@ def draw_info(image, fps, mode, number):
             cv.putText(image, "NUM:" + str(number), (10, 110),
                        cv.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1,
                        cv.LINE_AA)
+    return image
+
+
+def draw_devices_menu(image, selected_device_index, device_names):
+    cv.putText(image, "Device index : " + str(selected_device_index), (10, 130),
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
+               cv.LINE_AA)
+    for i in range(len(device_names)):
+
+        if i == selected_device_index:
+            # Define the points of the triangle
+            triangle_cnt = np.array(
+                [(10, 157 + i * 30), (10, 167 + i * 30), (15, 162 + i * 30)])
+            triangle_cnt = triangle_cnt.reshape((-1, 1, 2))
+
+            # Draw the filled triangle
+            cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
+            cv.putText(image, device_names[i], (20, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
+                       cv.LINE_AA)
+        else:
+            cv.putText(image, device_names[i], (20, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
+    return image
+
+
+def draw_device_actions_menu(image, selected_action_index, actions, is_active=False):
+    text = "Action index : " + str(selected_action_index)
+
+    # Calculate the top left coordinate of the rectangle
+    top_left = (300, 130 - cv.getTextSize(text,
+                cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][1])
+
+    max_width = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][0]
+
+    for i in range(len(actions)):
+        # Calculate the maximum width among all the texts
+        max_width = max(max_width, cv.getTextSize(
+            actions[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
+
+    # Calculate the bottom right coordinate of the rectangle
+    last_text = actions[-1]
+    bottom_right = (300 + max_width, 170 + (len(actions) - 1) * 30 +
+                    cv.getTextSize(last_text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][1])
+
+    padding = 20  # Padding value
+    # Draw rectangle around all the text with padding
+    if (is_active):
+        overlay = image.copy()
+        cv.rectangle(overlay, (top_left[0] - padding, top_left[1] - padding),
+                     (bottom_right[0] + padding, bottom_right[1] + padding), (255, 255, 255), -1)
+        # Apply the overlay
+        alpha = 0.55  # Transparency factor
+        image = cv.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    cv.putText(image, text, (300, 130),
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
+               cv.LINE_AA)
+
+    for i in range(len(actions)):
+        if i == selected_action_index:
+            # Define the points of the triangle
+            triangle_cnt = np.array(
+                [(290, 155 + i * 30), (290, 165 + i * 30), (295, 160 + i * 30)])
+            triangle_cnt = triangle_cnt.reshape((-1, 1, 2))
+
+            # Draw the filled triangle
+            cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
+
+            cv.putText(image, actions[i], (300, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
+                       cv.LINE_AA)
+        else:
+            cv.putText(image, actions[i], (300, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
+
+    return image
+
+
+def draw_sub_actions_menu(image, selected_sub_action_index, sub_actions, is_active=False):
+    text = "Sub action index : " + str(selected_sub_action_index)
+
+    max_width = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][0]
+    # Calculate the top left coordinate of the rectangle
+    top_left = (600, 130 - cv.getTextSize(text,
+                cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][1])
+
+    for i in range(len(sub_actions)):
+        # Calculate the maximum width among all the texts
+        max_width = max(max_width, cv.getTextSize(
+            sub_actions[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
+
+    # Calculate the bottom right coordinate of the rectangle
+    last_text = sub_actions[-1]
+    bottom_right = (600 + max_width, 170 + (len(sub_actions) - 1) * 30 +
+                    cv.getTextSize(last_text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][1])
+
+    padding = 20  # Padding value
+
+    # Draw rectangle around all the text with padding
+    if (is_active):
+        overlay = image.copy()
+        cv.rectangle(overlay, (top_left[0] - padding, top_left[1] - padding),
+                     (bottom_right[0] + padding, bottom_right[1] + padding), (255, 255, 255), -1)
+        # Apply the overlay
+        alpha = 0.55  # Transparency factor
+        image = cv.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    cv.putText(image, text, (600, 130),
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
+               cv.LINE_AA)
+
+    for i in range(len(sub_actions)):
+        if i == selected_sub_action_index:
+            # Define the points of the triangle
+            triangle_cnt = np.array(
+                [(590, 155 + i * 30), (590, 165 + i * 30), (595, 160 + i * 30)])
+            triangle_cnt = triangle_cnt.reshape((-1, 1, 2))
+
+            # Draw the filled triangle
+            cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
+
+            cv.putText(image, sub_actions[i], (600, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
+                       cv.LINE_AA)
+        else:
+            cv.putText(image, sub_actions[i], (600, 170 + i * 30),
+                       cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
+
     return image
 
 
