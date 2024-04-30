@@ -8,7 +8,7 @@ class Device:
         self.device_type = "Generic"
         self.actions = ["Power"]
 
-    def sendPowerReq(self, status="OFF"):
+    def send_power_req(self, status="OFF"):
         try:
             # result = requests.get(f"http://{self.ip}/cm?cmnd=POWER {status}")
             print(f"Power {status} sent to {self.name} ({self.ip})")
@@ -39,7 +39,7 @@ class SmartLed(Device):
         self.device_type = "SmartLed"
         self.actions = ["Power", "Color"]
 
-    def sendColorReq(self, color):
+    def send_color_req(self, color):
         try:
             # result = requests.get(f"http://{self.ip}/cm?cmnd=Color {color}")
             print(f"Color {color} sent to {self.name} ({self.ip})")

@@ -67,12 +67,11 @@ def main():
         device_names.append(device.name)
         print(device)
 
-    devices_menu = Menu("Devices", device_names)
-    actions_menu = Menu("Actions", devices[0].actions)
-    # colors_menu = Menu("Colors", ["Red", "Green", "Blue"])
     color_items = ["Red", "Green", "Blue"]
     power_items = ["ON", "OFF"]
-    sub_actions_menu = Menu("Sub Actions", power_items)
+    devices_menu = Menu("Devices", device_names)
+    actions_menu = Menu("Actions", devices[0].actions)
+    sub_actions_menu = Menu("Power", power_items)
 
     menus = [devices_menu, actions_menu, sub_actions_menu]
     selected_menu_index = 0
@@ -194,19 +193,19 @@ def main():
                 elif hand_sign_index == 4 and last_hand_sign_index != hand_sign_index:  # Thumb up gesture
                     if ((sub_actions_menu.visibility)):
                         if (sub_actions_menu.items[sub_actions_menu.selected_index] == "ON"):
-                            devices[devices_menu.selected_index].sendPowerReq(
+                            devices[devices_menu.selected_index].send_power_req(
                                 "ON")
                         if (sub_actions_menu.items[sub_actions_menu.selected_index] == "OFF"):
-                            devices[devices_menu.selected_index].sendPowerReq(
+                            devices[devices_menu.selected_index].send_power_req(
                                 "OFF")
                         if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Red"):
-                            devices[devices_menu.selected_index].sendColorReq(
+                            devices[devices_menu.selected_index].send_color_req(
                                 "#FF0000")
                         if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Green"):
-                            devices[devices_menu.selected_index].sendColorReq(
+                            devices[devices_menu.selected_index].send_color_req(
                                 "#00FF00")
                         if (sub_actions_menu.items[sub_actions_menu.selected_index] == "Blue"):
-                            devices[devices_menu.selected_index].sendColorReq(
+                            devices[devices_menu.selected_index].send_color_req(
                                 "#0000FF")
 
                 elif hand_sign_index == 5 and last_hand_sign_index != hand_sign_index:  # Thumb down gesture
@@ -240,8 +239,10 @@ def main():
                     if (selected_menu_index == 1):  # actions menu
                         if (actions_menu.items[actions_menu.selected_index] == "Color"):
                             sub_actions_menu.items = color_items
+                            sub_actions_menu.name = "Color"
                         if (actions_menu.items[actions_menu.selected_index] == "Power"):
                             sub_actions_menu.items = power_items
+                            sub_actions_menu.name = "Power"
 
                     if (last_gesture_index == 1):  # select next menu item
                         menus[selected_menu_index].increaseIndex()
@@ -268,13 +269,13 @@ def main():
         # draw menus
         if (devices_menu.visibility):
             debug_image = draw_devices_menu(
-                debug_image, devices_menu.selected_index, device_names)
+                debug_image, devices_menu.selected_index, devices_menu, is_active=selected_menu_index == 0)
             if (actions_menu.visibility):
                 debug_image = draw_device_actions_menu(
-                    debug_image, actions_menu.selected_index, devices[devices_menu.selected_index].actions, is_active=selected_menu_index == 1)
+                    debug_image, actions_menu.selected_index, actions_menu, is_active=selected_menu_index == 1)
                 if (sub_actions_menu.visibility):
                     debug_image = draw_sub_actions_menu(
-                        debug_image, sub_actions_menu.selected_index, sub_actions_menu.items, is_active=selected_menu_index == 2)
+                        debug_image, sub_actions_menu.selected_index, sub_actions_menu, is_active=selected_menu_index == 2)
 
         # Screen reflection #############################################################
         cv.imshow('Hand Gesture Recognition', debug_image)
@@ -641,12 +642,39 @@ def draw_info(image, fps, mode, number):
     return image
 
 
-def draw_devices_menu(image, selected_device_index, device_names):
-    cv.putText(image, "Device index : " + str(selected_device_index), (10, 130),
-               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
-               cv.LINE_AA)
-    for i in range(len(device_names)):
+def draw_devices_menu(image, selected_device_index, device_menu, is_active=False):
+    text = device_menu.name + " : "
+    items = device_menu.items
+    max_width = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][0]
+    # Calculate the top left coordinate of the rectangle
+    top_left = (10, 130 - cv.getTextSize(text,
+                cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][1])
 
+    for i in range(len(items)):
+        # Calculate the maximum width among all the texts
+        max_width = max(max_width, cv.getTextSize(
+            items[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
+
+    # Calculate the bottom right coordinate of the rectangle
+    last_text = items[-1]
+    bottom_right = (10 + max_width, 170 + (len(items) - 1) * 30 +
+                    cv.getTextSize(last_text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][1])
+
+    padding = 20  # Padding value
+
+    # Draw rectangle around all the text with padding
+    if (is_active):
+        overlay = image.copy()
+        cv.rectangle(overlay, (top_left[0] - padding, top_left[1] - padding),
+                     (bottom_right[0] + padding, bottom_right[1] + padding), (255, 255, 255), -1)
+        # Apply the overlay
+        alpha = 0.55  # Transparency factor
+        image = cv.addWeighted(overlay, alpha, image, 1 - alpha, 0)
+
+    cv.putText(image, text, (10, 130),
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2,
+               cv.LINE_AA)
+    for i in range(len(items)):
         if i == selected_device_index:
             # Define the points of the triangle
             triangle_cnt = np.array(
@@ -655,32 +683,34 @@ def draw_devices_menu(image, selected_device_index, device_names):
 
             # Draw the filled triangle
             cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
-            cv.putText(image, device_names[i], (20, 170 + i * 30),
+
+            cv.putText(image, items[i], (20, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
                        cv.LINE_AA)
         else:
-            cv.putText(image, device_names[i], (20, 170 + i * 30),
+            cv.putText(image, items[i], (20, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
+
     return image
 
 
-def draw_device_actions_menu(image, selected_action_index, actions, is_active=False):
-    text = "Action index : " + str(selected_action_index)
-
+def draw_device_actions_menu(image, selected_action_index, actions_menu, is_active=False):
+    text = actions_menu.name + " : "
+    items = actions_menu.items
     # Calculate the top left coordinate of the rectangle
     top_left = (300, 130 - cv.getTextSize(text,
                 cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][1])
 
     max_width = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][0]
 
-    for i in range(len(actions)):
+    for i in range(len(items)):
         # Calculate the maximum width among all the texts
         max_width = max(max_width, cv.getTextSize(
-            actions[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
+            items[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
 
     # Calculate the bottom right coordinate of the rectangle
-    last_text = actions[-1]
-    bottom_right = (300 + max_width, 170 + (len(actions) - 1) * 30 +
+    last_text = items[-1]
+    bottom_right = (300 + max_width, 170 + (len(items) - 1) * 30 +
                     cv.getTextSize(last_text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][1])
 
     padding = 20  # Padding value
@@ -694,10 +724,10 @@ def draw_device_actions_menu(image, selected_action_index, actions, is_active=Fa
         image = cv.addWeighted(overlay, alpha, image, 1 - alpha, 0)
 
     cv.putText(image, text, (300, 130),
-               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2,
                cv.LINE_AA)
 
-    for i in range(len(actions)):
+    for i in range(len(items)):
         if i == selected_action_index:
             # Define the points of the triangle
             triangle_cnt = np.array(
@@ -707,32 +737,33 @@ def draw_device_actions_menu(image, selected_action_index, actions, is_active=Fa
             # Draw the filled triangle
             cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
 
-            cv.putText(image, actions[i], (300, 170 + i * 30),
+            cv.putText(image, items[i], (300, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
                        cv.LINE_AA)
         else:
-            cv.putText(image, actions[i], (300, 170 + i * 30),
+            cv.putText(image, items[i], (300, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
 
     return image
 
 
-def draw_sub_actions_menu(image, selected_sub_action_index, sub_actions, is_active=False):
-    text = "Sub action index : " + str(selected_sub_action_index)
+def draw_sub_actions_menu(image, selected_sub_action_index, sub_actions_menu, is_active=False):
+    text = sub_actions_menu.name + " : "
 
+    items = sub_actions_menu.items
     max_width = cv.getTextSize(text, cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][0]
     # Calculate the top left coordinate of the rectangle
     top_left = (600, 130 - cv.getTextSize(text,
                 cv.FONT_HERSHEY_SIMPLEX, 0.9, 1)[0][1])
 
-    for i in range(len(sub_actions)):
+    for i in range(len(items)):
         # Calculate the maximum width among all the texts
         max_width = max(max_width, cv.getTextSize(
-            sub_actions[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
+            items[i], cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][0])
 
     # Calculate the bottom right coordinate of the rectangle
-    last_text = sub_actions[-1]
-    bottom_right = (600 + max_width, 170 + (len(sub_actions) - 1) * 30 +
+    last_text = items[-1]
+    bottom_right = (600 + max_width, 170 + (len(items) - 1) * 30 +
                     cv.getTextSize(last_text, cv.FONT_HERSHEY_SIMPLEX, 0.8, 1)[0][1])
 
     padding = 20  # Padding value
@@ -747,10 +778,10 @@ def draw_sub_actions_menu(image, selected_sub_action_index, sub_actions, is_acti
         image = cv.addWeighted(overlay, alpha, image, 1 - alpha, 0)
 
     cv.putText(image, text, (600, 130),
-               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 1,
+               cv.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 0), 2,
                cv.LINE_AA)
 
-    for i in range(len(sub_actions)):
+    for i in range(len(items)):
         if i == selected_sub_action_index:
             # Define the points of the triangle
             triangle_cnt = np.array(
@@ -760,11 +791,11 @@ def draw_sub_actions_menu(image, selected_sub_action_index, sub_actions, is_acti
             # Draw the filled triangle
             cv.fillPoly(image, [triangle_cnt], color=(0, 0, 255))
 
-            cv.putText(image, sub_actions[i], (600, 170 + i * 30),
+            cv.putText(image, items[i], (600, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 1,
                        cv.LINE_AA)
         else:
-            cv.putText(image, sub_actions[i], (600, 170 + i * 30),
+            cv.putText(image, items[i], (600, 170 + i * 30),
                        cv.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 0), 1, cv.LINE_AA)
 
     return image
